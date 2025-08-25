@@ -1,75 +1,178 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useEffect, useState, useRef } from "react";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
+import Slider from "@react-native-community/slider";
+import { Audio } from "expo-av";
 
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+export default function Index() {
+  const soundsList = [
+    { name: "Rain", file: require('../../assets/rain.mp3'), color: "#1abc9c" },
+    { name: "Car", file: require('../../assets/car.mp3'), color: "#e67e22" },
+  ];
 
-export default function HomeScreen() {
+  const [volumes, setVolumes] = useState(soundsList.map(() => 0.5));
+  const [mutes, setMutes] = useState(soundsList.map(() => false));
+  const [masterMute, setMasterMute] = useState(false);
+  const [masterVolume, setMasterVolume] = useState(1);
+
+  const soundsRef = useRef([]);
+
+  // Setup audio mode pour background et silent mode
+  useEffect(() => {
+    async function setupAudio() {
+      await Audio.setAudioModeAsync({
+        staysActiveInBackground: true,
+        playsInSilentModeIOS: true,
+        allowsRecordingIOS: false,
+        interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX,
+        interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DO_NOT_MIX,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+      });
+    }
+    setupAudio();
+  }, []);
+
+  // Charger et jouer les sons
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadAllSounds() {
+      try {
+        const loadedSounds = [];
+        for (let i = 0; i < soundsList.length; i++) {
+          const { sound } = await Audio.Sound.createAsync(
+            soundsList[i].file,
+            { isLooping: true, volume: volumes[i] * masterVolume }
+          );
+          await sound.playAsync();
+          loadedSounds.push(sound);
+        }
+        if (isMounted) soundsRef.current = loadedSounds;
+      } catch (error) {
+        console.log("❌ Erreur audio :", error);
+      }
+    }
+
+    loadAllSounds();
+
+    return () => {
+      isMounted = false;
+      soundsRef.current.forEach(s => s.unloadAsync());
+    };
+  }, []);
+
+  // Modification du volume individuel
+  const handleVolumeChange = (index, value) => {
+    setVolumes(prev => {
+      const newVolumes = [...prev];
+      newVolumes[index] = value;
+      return newVolumes;
+    });
+    const sound = soundsRef.current[index];
+    if (sound && !mutes[index] && !masterMute) {
+      sound.setVolumeAsync(value * masterVolume);
+    }
+  };
+
+  // Toggle mute individuel
+  const toggleMute = (index) => {
+    setMutes(prev => {
+      const newMutes = [...prev];
+      newMutes[index] = !newMutes[index];
+      const sound = soundsRef.current[index];
+      if (sound) sound.setVolumeAsync(newMutes[index] || masterMute ? 0 : volumes[index] * masterVolume);
+      return newMutes;
+    });
+  };
+
+  // Toggle Master Mute
+  const toggleMasterMute = () => {
+    const newMasterMute = !masterMute;
+    setMasterMute(newMasterMute);
+    soundsRef.current.forEach((sound, i) => {
+      sound.setVolumeAsync(newMasterMute || mutes[i] ? 0 : volumes[i] * masterVolume);
+    });
+  };
+
+  // Modification du Master Volume
+  const handleMasterVolume = (value) => {
+    setMasterVolume(value);
+    soundsRef.current.forEach((sound, i) => {
+      if (!mutes[i] && !masterMute) {
+        sound.setVolumeAsync(volumes[i] * value);
+      }
+    });
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Text style={styles.title}>White Noise Mixer</Text>
+
+      {/* Master Controls */}
+      <View style={styles.masterWrapper}>
+        <Text style={styles.masterLabel}>Master</Text>
+        <Slider
+          style={styles.masterSlider}
+          minimumValue={0}
+          maximumValue={1}
+          value={masterVolume}
+          minimumTrackTintColor="#ffffff"
+          maximumTrackTintColor="#555"
+          thumbTintColor="#ffffff"
+          onValueChange={handleMasterVolume}
         />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+        <TouchableOpacity style={[styles.muteButton, masterMute && styles.muted]} onPress={toggleMasterMute}>
+          <Text style={styles.muteText}>{masterMute ? "Unmute" : "Mute"}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Individual Tracks */}
+      {soundsList.map((soundItem, index) => (
+        <View key={index} style={[styles.sliderWrapper, { borderColor: soundItem.color }]}>
+          <View style={styles.sliderRow}>
+            <Text style={styles.sliderLabel}>{soundItem.name}</Text>
+            <Slider
+              style={styles.slider}
+              minimumValue={0}
+              maximumValue={1}
+              value={volumes[index]}
+              minimumTrackTintColor={soundItem.color}
+              maximumTrackTintColor="#333"
+              thumbTintColor={soundItem.color}
+              onValueChange={(val) => handleVolumeChange(index, val)}
+            />
+            <TouchableOpacity
+              style={[styles.muteButton, mutes[index] && styles.muted]}
+              onPress={() => toggleMute(index)}
+            >
+              <Text style={styles.muteText}>{mutes[index] ? "Unmute" : "Mute"}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ))}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: { flex: 1, backgroundColor: "#0a1f44" },
+  content: { paddingVertical: 40, paddingHorizontal: 20 },
+  title: { fontSize: 26, color: "white", marginBottom: 20, textAlign: "center", fontWeight: "bold" },
+  masterWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 30,
+    padding: 15,
+    borderRadius: 12,
+    backgroundColor: "#222",
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
+  masterLabel: { color: "white", fontWeight: "bold", marginRight: 10, width: 60 },
+  masterSlider: { flex: 1, height: 40 },
+  sliderWrapper: { marginBottom: 20, padding: 15, borderRadius: 12, borderWidth: 2 },
+  sliderRow: { flexDirection: "row", alignItems: "center" },
+  sliderLabel: { color: "white", fontWeight: "bold", width: 60, marginRight: 10 },
+  slider: { flex: 1, height: 40 },
+  muteButton: { marginLeft: 10, paddingVertical: 5, paddingHorizontal: 10, backgroundColor: "#444", borderRadius: 5 },
+  muted: { backgroundColor: "#ff0000" },
+  muteText: { color: "white" },
 });
