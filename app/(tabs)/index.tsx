@@ -3,7 +3,38 @@ import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ActivityIndi
 import Slider from "@react-native-community/slider";
 import { Audio } from "expo-av";
 
-const ambientSounds = [
+interface SoundItem {
+  name: string;
+  file: any;
+}
+
+interface VolumeSliderProps {
+  soundName: string;
+  initialVolume: number;
+  onVolumeChange: (name: string, volume: number) => void;
+}
+
+interface PlayingSoundsState {
+  [key: string]: Audio.Sound;
+}
+
+interface VolumesState {
+  [key: string]: number;
+}
+
+interface LoadingSoundsState {
+  [key: string]: boolean;
+}
+
+interface PreloadedSoundsState {
+  [key: string]: Audio.Sound;
+}
+
+type ActiveTab = 'ambient' | 'whitenoise';
+
+const ambientSounds: SoundItem[] = [
+  { name: "Boiling Water", file: require("../../assets/ambiant/boiling-water.mp3") },
+  { name: "Car", file: require("../../assets/ambiant/car.mp3") },
   { name: "Clock", file: require("../../assets/ambiant/clock.mp3") },
   { name: "Coffee Machine", file: require("../../assets/ambiant/coffee-machine.mp3") },
   { name: "Fire 1", file: require("../../assets/ambiant/fire-1.mp3") },
@@ -18,7 +49,7 @@ const ambientSounds = [
   { name: "River 1", file: require("../../assets/ambiant/river-1.mp3") },
   { name: "Shower 1", file: require("../../assets/ambiant/shower-1.mp3") },
   { name: "Spring Weather 1", file: require("../../assets/ambiant/spring-weather-1.mp3") },
-  { name: "Water Dripping", file: require("../../assets/ambiant/water-dripping-1.mp3") },
+  { name: "Water Dripping 1", file: require("../../assets/ambiant/water-dripping-1.mp3") },
   { name: "Wind 1", file: require("../../assets/ambiant/wind-1.mp3") },
   { name: "Wind Chime 2", file: require("../../assets/ambiant/wind-chime-2.mp3") },
   { name: "Wind Gust 01", file: require("../../assets/ambiant/wind-gust-01.mp3") },
@@ -26,7 +57,7 @@ const ambientSounds = [
   { name: "Windy Forest Ambience 01", file: require("../../assets/ambiant/windy-forest-ambience-01.mp3") },
 ];
 
-const whiteNoiseSounds = [
+const whiteNoiseSounds: SoundItem[] = [
   { name: "Blue Noise", file: require("../../assets/white/blue-noise.mp3") },
   { name: "Brown Noise", file: require("../../assets/white/brown-noise.mp3") },
   { name: "Grey Noise", file: require("../../assets/white/grey-noise.mp3") },
@@ -40,19 +71,14 @@ const whiteNoiseSounds = [
   { name: "White Noise 2", file: require("../../assets/white/white-noise-2.mp3") },
 ];
 
-// Composant séparé pour le slider pour éviter les conflits d'état
-const VolumeSlider = ({ soundName, initialVolume, onVolumeChange }: { 
-  soundName: string, 
-  initialVolume: number, 
-  onVolumeChange: (name: string, volume: number) => void 
-}) => {
-  const [localVolume, setLocalVolume] = useState(initialVolume);
+const VolumeSlider: React.FC<VolumeSliderProps> = ({ soundName, initialVolume, onVolumeChange }) => {
+  const [localVolume, setLocalVolume] = useState<number>(initialVolume);
 
-  const handleSliderChange = (value: number) => {
+  const handleSliderChange = (value: number): void => {
     setLocalVolume(value);
   };
 
-  const handleSliderComplete = (value: number) => {
+  const handleSliderComplete = (value: number): void => {
     onVolumeChange(soundName, value);
   };
 
@@ -66,32 +92,30 @@ const VolumeSlider = ({ soundName, initialVolume, onVolumeChange }: {
         value={localVolume}
         onValueChange={handleSliderChange}
         onSlidingComplete={handleSliderComplete}
-        minimumTrackTintColor="#8a2be2"
-        maximumTrackTintColor="#ccc"
-        thumbTintColor="#8a2be2"
+        minimumTrackTintColor="rgba(255, 255, 255, 0.9)"
+        maximumTrackTintColor="rgba(255, 255, 255, 0.3)"
+        thumbTintColor="#ffffff"
       />
     </View>
   );
 };
 
-export default function SoundBoard() {
-  const [playingSounds, setPlayingSounds] = useState<{ [key: string]: Audio.Sound }>({});
-  const [volumes, setVolumes] = useState<{ [key: string]: number }>({});
-  const [preloadedSounds, setPreloadedSounds] = useState<{ [key: string]: Audio.Sound }>({});
-  const [loadingSounds, setLoadingSounds] = useState<{ [key: string]: boolean }>({});
-  const [isPreloading, setIsPreloading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'ambient' | 'whitenoise'>('ambient');
-  const [showStopModal, setShowStopModal] = useState(false);
+export default function SoundBoard(): React.JSX.Element {
+  const [playingSounds, setPlayingSounds] = useState<PlayingSoundsState>({});
+  const [volumes, setVolumes] = useState<VolumesState>({});
+  const [preloadedSounds, setPreloadedSounds] = useState<PreloadedSoundsState>({});
+  const [loadingSounds, setLoadingSounds] = useState<LoadingSoundsState>({});
+  const [isPreloading, setIsPreloading] = useState<boolean>(true);
+  const [activeTab, setActiveTab] = useState<ActiveTab>('ambient');
+  const [showStopModal, setShowStopModal] = useState<boolean>(false);
 
-  // Pré-charger les sons les plus populaires au démarrage
   useEffect(() => {
-    const preloadPopularSounds = async () => {
-      const popularSounds = ["Ocean", "Rain 01", "Fire", "White Noise 1"]; // Sons populaires à pré-charger
-      const preloaded: { [key: string]: Audio.Sound } = {};
+    const preloadPopularSounds = async (): Promise<void> => {
+      const popularSounds: string[] = ["Ocean", "Rain 01", "Fire", "White Noise 1"];
+      const preloaded: PreloadedSoundsState = {};
       
       try {
         for (const soundName of popularSounds) {
-          // Chercher dans les deux catégories
           const soundItem = [...ambientSounds, ...whiteNoiseSounds].find(s => s.name === soundName);
           if (soundItem) {
             const { sound } = await Audio.Sound.createAsync(soundItem.file, {
@@ -112,11 +136,9 @@ export default function SoundBoard() {
     preloadPopularSounds();
   }, []);
 
-  // Cleanup lors du démontage du composant
   useEffect(() => {
     return () => {
-      // Nettoyer tous les sons en cours de lecture
-      Object.values(playingSounds).forEach(async (sound) => {
+      Object.values(playingSounds).forEach(async (sound: Audio.Sound) => {
         try {
           await sound.stopAsync();
           await sound.unloadAsync();
@@ -125,8 +147,7 @@ export default function SoundBoard() {
         }
       });
 
-      // Nettoyer les sons pré-chargés (seulement ceux qui ne sont pas en cours de lecture)
-      Object.entries(preloadedSounds).forEach(([name, sound]) => {
+      Object.entries(preloadedSounds).forEach(([name, sound]: [string, Audio.Sound]) => {
         if (!playingSounds[name]) {
           try {
             sound.unloadAsync();
@@ -136,42 +157,33 @@ export default function SoundBoard() {
         }
       });
     };
-  }, []);
+  }, [playingSounds, preloadedSounds]);
 
-  const showError = (message: string) => {
-    Alert.alert(
-      "Erreur Audio",
-      message,
-      [{ text: "OK", style: "default" }]
-    );
+  const showError = (message: string): void => {
+    Alert.alert("Erreur Audio", message, [{ text: "OK", style: "default" }]);
   };
 
-  const playSound = async (item: any) => {
+  const playSound = async (item: SoundItem): Promise<void> => {
     try {
-      // Si le son est déjà en cours de chargement, ignorer
       if (loadingSounds[item.name]) return;
 
       if (playingSounds[item.name]) {
-        // Arrêter le son
         await playingSounds[item.name].stopAsync();
         await playingSounds[item.name].unloadAsync();
         const updated = { ...playingSounds };
         delete updated[item.name];
         setPlayingSounds(updated);
       } else {
-        // Afficher l'indicateur de chargement
         setLoadingSounds({ ...loadingSounds, [item.name]: true });
 
         let sound: Audio.Sound;
 
-        // Utiliser le son pré-chargé si disponible
         if (preloadedSounds[item.name]) {
           sound = preloadedSounds[item.name];
           await sound.setVolumeAsync(volumes[item.name] ?? 1.0);
           await sound.setIsLoopingAsync(true);
           await sound.playAsync();
         } else {
-          // Charger le son normalement
           const { sound: newSound } = await Audio.Sound.createAsync(item.file, {
             isLooping: true,
             volume: volumes[item.name] ?? 1.0,
@@ -182,7 +194,6 @@ export default function SoundBoard() {
 
         setPlayingSounds({ ...playingSounds, [item.name]: sound });
         
-        // Retirer l'indicateur de chargement
         const updatedLoading = { ...loadingSounds };
         delete updatedLoading[item.name];
         setLoadingSounds(updatedLoading);
@@ -191,14 +202,13 @@ export default function SoundBoard() {
       console.log("Erreur son :", error);
       showError(`Impossible de lire le son "${item.name}". Vérifiez que le fichier existe.`);
       
-      // Retirer l'indicateur de chargement en cas d'erreur
       const updatedLoading = { ...loadingSounds };
       delete updatedLoading[item.name];
       setLoadingSounds(updatedLoading);
     }
   };
 
-  const setVolume = async (name: string, value: number) => {
+  const setVolume = async (name: string, value: number): Promise<void> => {
     try {
       if (playingSounds[name]) {
         await playingSounds[name].setVolumeAsync(value);
@@ -209,46 +219,61 @@ export default function SoundBoard() {
     }
   };
 
-  const getCurrentSounds = () => {
+  const getCurrentSounds = (): SoundItem[] => {
     return activeTab === 'ambient' ? ambientSounds : whiteNoiseSounds;
   };
 
-  const getTabTitle = () => {
+  const getTabTitle = (): string => {
     return activeTab === 'ambient' ? '🌿 Sons d\'Ambiance' : '📻 Bruits Blancs';
   };
 
-  const getPlayingCount = () => {
+  const getPlayingCount = (): number => {
     return Object.keys(playingSounds).length;
   };
 
-  const stopSound = async (soundName: string) => {
+  const stopAllSounds = async (): Promise<void> => {
+    try {
+      const soundsToStop = { ...playingSounds };
+      
+      await Promise.all(
+        Object.entries(soundsToStop).map(async ([soundName, sound]: [string, Audio.Sound]) => {
+          try {
+            await sound.stopAsync();
+            await sound.unloadAsync();
+          } catch (error) {
+            console.log(`Erreur lors de l'arrêt du son ${soundName}:`, error);
+          }
+        })
+      );
+      
+      setPlayingSounds({});
+      setShowStopModal(false);
+      
+    } catch (error) {
+      console.log("Erreur lors de l'arrêt de tous les sons :", error);
+    }
+  };
+
+  const stopSound = async (soundName: string): Promise<void> => {
     try {
       if (playingSounds[soundName]) {
-        await playingSounds[soundName].stopAsync();
-        await playingSounds[soundName].unloadAsync();
-        const updated = { ...playingSounds };
-        delete updated[soundName];
-        setPlayingSounds(updated);
+        const sound = playingSounds[soundName];
+        await sound.stopAsync();
+        await sound.unloadAsync();
+        
+        setPlayingSounds((prevPlayingSounds: PlayingSoundsState) => {
+          const updated = { ...prevPlayingSounds };
+          delete updated[soundName];
+          return updated;
+        });
       }
     } catch (error) {
       console.log("Erreur lors de l'arrêt du son :", error);
     }
   };
 
-  const stopAllSounds = async () => {
-    try {
-      const soundNames = Object.keys(playingSounds);
-      for (const soundName of soundNames) {
-        await stopSound(soundName);
-      }
-      setShowStopModal(false);
-    } catch (error) {
-      console.log("Erreur lors de l'arrêt de tous les sons :", error);
-    }
-  };
-
-  const getPlayingSoundsArray = () => {
-    return Object.keys(playingSounds).map(name => ({
+  const getPlayingSoundsArray = (): Array<{ name: string; sound: Audio.Sound }> => {
+    return Object.keys(playingSounds).map((name: string) => ({
       name,
       sound: playingSounds[name]
     }));
@@ -257,19 +282,23 @@ export default function SoundBoard() {
   if (isPreloading) {
     return (
       <View style={[styles.container, styles.centered]}>
-        <ActivityIndicator size="large" color="#8a2be2" />
-        <Text style={styles.loadingText}>Chargement des sons...</Text>
+        <View style={styles.loadingGlass}>
+          <ActivityIndicator size="large" color="rgba(255, 255, 255, 0.9)" />
+          <Text style={styles.loadingText}>Chargement des sons...</Text>
+        </View>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>🎶 Relaxation Player</Text>
+      <View style={styles.headerGlass}>
+        <Text style={styles.title}>🎶 Relaxation Player</Text>
+        <Text style={styles.subtitle}>Créez votre ambiance parfaite</Text>
+      </View>
       
-      {/* Compteur de sons en cours et bouton STOP */}
       {getPlayingCount() > 0 && (
-        <View style={styles.controlsContainer}>
+        <View style={styles.controlsGlass}>
           <View style={styles.playingCounter}>
             <Text style={styles.playingCounterText}>
               🎵 {getPlayingCount()} son{getPlayingCount() > 1 ? 's' : ''} en cours
@@ -284,8 +313,7 @@ export default function SoundBoard() {
         </View>
       )}
 
-      {/* Navigation par onglets */}
-      <View style={styles.tabContainer}>
+      <View style={styles.tabGlass}>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'ambient' ? styles.activeTab : null]}
           onPress={() => setActiveTab('ambient')}
@@ -304,15 +332,16 @@ export default function SoundBoard() {
         </TouchableOpacity>
       </View>
 
-      {/* Titre de la section active */}
       <Text style={styles.sectionTitle}>{getTabTitle()}</Text>
 
-      {/* Liste des sons */}
-      <FlatList
+      <FlatList<SoundItem>
         data={getCurrentSounds()}
-        keyExtractor={(item) => item.name}
-        renderItem={({ item }) => (
-          <View style={styles.card}>
+        keyExtractor={(item: SoundItem) => item.name}
+        renderItem={({ item }: { item: SoundItem }) => (
+          <View style={[
+            styles.cardGlass,
+            playingSounds[item.name] && styles.cardActive
+          ]}>
             <TouchableOpacity
               style={[
                 styles.button,
@@ -325,12 +354,12 @@ export default function SoundBoard() {
               <View style={styles.buttonContent}>
                 {loadingSounds[item.name] ? (
                   <>
-                    <ActivityIndicator size="small" color="#fff" style={styles.buttonLoader} />
+                    <ActivityIndicator size="small" color="rgba(255, 255, 255, 0.9)" style={styles.buttonLoader} />
                     <Text style={styles.buttonText}>Chargement...</Text>
                   </>
                 ) : (
                   <Text style={styles.buttonText}>
-                    {playingSounds[item.name] ? "⏸️ Stop" : "▶️ Play"} {item.name}
+                    {playingSounds[item.name] ? "⏸️ Pause" : "▶️ Play"} {item.name}
                     {preloadedSounds[item.name] && !playingSounds[item.name] && " ⚡"}
                   </Text>
                 )}
@@ -340,7 +369,7 @@ export default function SoundBoard() {
             <VolumeSlider 
               soundName={item.name}
               initialVolume={volumes[item.name] ?? 1.0}
-              onVolumeChange={(name, volume) => {
+              onVolumeChange={(name: string, volume: number) => {
                 setVolumes({ ...volumes, [name]: volume });
                 setVolume(name, volume);
               }}
@@ -348,9 +377,9 @@ export default function SoundBoard() {
           </View>
         )}
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.listContainer}
       />
 
-      {/* Modal pour arrêter les sons */}
       <Modal
         visible={showStopModal}
         transparent={true}
@@ -358,7 +387,7 @@ export default function SoundBoard() {
         onRequestClose={() => setShowStopModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={styles.modalGlass}>
             <Text style={styles.modalTitle}>Arrêter les sons</Text>
             
             <View style={styles.modalButtonsContainer}>
@@ -372,11 +401,11 @@ export default function SoundBoard() {
 
             <Text style={styles.modalSubtitle}>Ou arrêter individuellement :</Text>
             
-            <FlatList
+            <FlatList<{ name: string; sound: Audio.Sound }>
               data={getPlayingSoundsArray()}
-              keyExtractor={(item) => item.name}
+              keyExtractor={(item: { name: string; sound: Audio.Sound }) => item.name}
               style={styles.playingSoundsList}
-              renderItem={({ item }) => (
+              renderItem={({ item }: { item: { name: string; sound: Audio.Sound } }) => (
                 <TouchableOpacity
                   style={styles.playingSoundItem}
                   onPress={() => {
@@ -407,114 +436,212 @@ export default function SoundBoard() {
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
-    backgroundColor: "#1a1a1a", 
-    padding: 20, 
-    paddingTop: 50 
+    backgroundColor: "#0a0a0f",
+    paddingTop: 60,
   },
   centered: {
     justifyContent: "center",
     alignItems: "center",
   },
+  headerGlass: {
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderRadius: 28,
+    padding: 24,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.4,
+    shadowRadius: 24,
+    elevation: 15,
+  },
   title: { 
-    fontSize: 24, 
-    fontWeight: "bold", 
-    color: "#fff", 
-    marginBottom: 20, 
-    textAlign: "center" 
+    fontSize: 32, 
+    fontWeight: "800", 
+    color: "rgba(255, 255, 255, 0.95)", 
+    marginBottom: 8, 
+    textAlign: "center",
+    letterSpacing: -1,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: "rgba(255, 255, 255, 0.7)",
+    textAlign: "center",
+    fontWeight: "500",
+    letterSpacing: 0.2,
+  },
+  loadingGlass: {
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderRadius: 32,
+    padding: 40,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.15)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.5,
+    shadowRadius: 32,
+    elevation: 20,
   },
   loadingText: {
-    color: "#fff",
-    fontSize: 16,
-    marginTop: 10,
+    color: "rgba(255, 255, 255, 0.9)",
+    fontSize: 18,
+    marginTop: 16,
+    fontWeight: "600",
+    letterSpacing: 0.3,
   },
-  playingCounter: {
-    backgroundColor: "#8a2be2",
-    padding: 8,
-    borderRadius: 20,
-    flex: 1,
-    marginRight: 10,
-  },
-  playingCounterText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "bold",
-    textAlign: "center",
-  },
-  controlsContainer: {
+  controlsGlass: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 15,
+    marginBottom: 20,
+    marginHorizontal: 20,
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderRadius: 24,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  playingCounter: {
+    backgroundColor: "rgba(139, 92, 246, 0.25)",
+    padding: 14,
+    borderRadius: 18,
+    flex: 1,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: "rgba(139, 92, 246, 0.3)",
+  },
+  playingCounterText: {
+    color: "rgba(255, 255, 255, 0.95)",
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "center",
+    letterSpacing: 0.2,
   },
   stopButton: {
-    backgroundColor: "#dc3545",
-    padding: 8,
-    borderRadius: 20,
-    minWidth: 80,
+    backgroundColor: "rgba(239, 68, 68, 0.25)",
+    padding: 14,
+    borderRadius: 18,
+    minWidth: 85,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.4)",
   },
   stopButtonText: {
-    color: "#fff",
+    color: "rgba(255, 255, 255, 0.95)",
     fontSize: 14,
-    fontWeight: "bold",
+    fontWeight: "700",
     textAlign: "center",
+    letterSpacing: 0.3,
   },
-  tabContainer: {
+  tabGlass: {
     flexDirection: "row",
-    marginBottom: 20,
-    backgroundColor: "#2a2a2a",
-    borderRadius: 25,
-    padding: 4,
+    marginHorizontal: 20,
+    marginBottom: 24,
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderRadius: 24,
+    padding: 6,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 12,
   },
   tab: {
     flex: 1,
-    padding: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
     alignItems: "center",
-    borderRadius: 20,
+    borderRadius: 18,
   },
   activeTab: {
-    backgroundColor: "#8a2be2",
+    backgroundColor: "rgba(255, 255, 255, 0.18)",
+    shadowColor: "rgba(139, 92, 246, 0.6)",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
   },
   tabText: {
-    color: "#ccc",
+    color: "rgba(255, 255, 255, 0.7)",
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "700",
+    letterSpacing: 0.2,
   },
   activeTabText: {
-    color: "#fff",
+    color: "rgba(255, 255, 255, 0.98)",
   },
   sectionTitle: {
-    fontSize: 18,
-    color: "#fff",
+    fontSize: 20,
+    color: "rgba(255, 255, 255, 0.85)",
     textAlign: "center",
-    marginBottom: 15,
-    opacity: 0.8,
+    marginBottom: 20,
+    fontWeight: "600",
+    letterSpacing: 0.5,
   },
-  card: { 
-    backgroundColor: "#2a2a2a", 
-    padding: 15, 
-    marginBottom: 15, 
-    borderRadius: 12, 
+  listContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+  },
+  cardGlass: { 
+    backgroundColor: "rgba(255, 255, 255, 0.07)",
+    padding: 24, 
+    marginBottom: 18, 
+    borderRadius: 24,
     alignItems: "center", 
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.15)",
     shadowColor: "#000", 
-    shadowOpacity: 0.3, 
-    shadowRadius: 5, 
-    elevation: 5 
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35, 
+    shadowRadius: 20, 
+    elevation: 12,
+  },
+  cardActive: {
+    backgroundColor: "rgba(139, 92, 246, 0.18)",
+    borderColor: "rgba(139, 92, 246, 0.4)",
+    shadowColor: "rgba(139, 92, 246, 0.5)",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 15,
   },
   button: { 
-    backgroundColor: "#444", 
-    padding: 10, 
-    borderRadius: 8, 
-    marginBottom: 10, 
-    width: "80%", 
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    padding: 18, 
+    borderRadius: 18, 
+    marginBottom: 16, 
+    width: "94%", 
     alignItems: "center",
-    minHeight: 45,
+    minHeight: 56,
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.18)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
   },
   buttonActive: { 
-    backgroundColor: "#8a2be2" 
+    backgroundColor: "rgba(139, 92, 246, 0.4)",
+    borderColor: "rgba(139, 92, 246, 0.6)",
+    shadowColor: "rgba(139, 92, 246, 0.7)",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 12,
   },
   buttonLoading: {
-    backgroundColor: "#666",
-    opacity: 0.7,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    opacity: 0.6,
   },
   buttonContent: {
     flexDirection: "row",
@@ -525,19 +652,26 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   buttonText: { 
-    color: "#fff", 
+    color: "rgba(255, 255, 255, 0.95)", 
     fontSize: 16,
+    fontWeight: "700",
     textAlign: "center",
+    letterSpacing: 0.3,
   },
   sliderContainer: {
-    width: "80%",
+    width: "94%",
     alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.12)",
   },
   slider: {
     width: "100%",
-    height: 20,
+    height: 28,
   },
-  // Styles pour le modal
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.7)",
@@ -545,64 +679,95 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 20,
   },
-  modalContent: {
-    backgroundColor: "#2a2a2a",
-    borderRadius: 15,
-    padding: 20,
-    width: "90%",
-    maxHeight: "80%",
+  modalGlass: {
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 28,
+    padding: 28,
+    width: "94%",
+    maxHeight: "82%",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.5,
+    shadowRadius: 35,
+    elevation: 25,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#fff",
+    fontSize: 24,
+    fontWeight: "800",
+    color: "rgba(255, 255, 255, 0.95)",
     textAlign: "center",
-    marginBottom: 20,
+    marginBottom: 24,
+    letterSpacing: -0.5,
   },
   modalSubtitle: {
     fontSize: 16,
-    color: "#ccc",
+    color: "rgba(255, 255, 255, 0.75)",
     textAlign: "center",
-    marginBottom: 15,
-    marginTop: 10,
+    marginBottom: 18,
+    marginTop: 18,
+    fontWeight: "500",
   },
   modalButtonsContainer: {
-    marginBottom: 10,
+    marginBottom: 18,
   },
   stopAllButton: {
-    backgroundColor: "#dc3545",
-    padding: 15,
-    borderRadius: 10,
+    backgroundColor: "rgba(239, 68, 68, 0.3)",
+    padding: 18,
+    borderRadius: 18,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.5)",
+    shadowColor: "rgba(239, 68, 68, 0.5)",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 10,
   },
   stopAllButtonText: {
-    color: "#fff",
+    color: "rgba(255, 255, 255, 0.95)",
     fontSize: 16,
-    fontWeight: "bold",
+    fontWeight: "700",
+    letterSpacing: 0.2,
   },
   playingSoundsList: {
-    maxHeight: 200,
+    maxHeight: 220,
   },
   playingSoundItem: {
-    backgroundColor: "#444",
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 10,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.18)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
   },
   playingSoundText: {
-    color: "#fff",
-    fontSize: 14,
+    color: "rgba(255, 255, 255, 0.9)",
+    fontSize: 15,
+    fontWeight: "600",
+    letterSpacing: 0.2,
   },
   modalCancelButton: {
-    backgroundColor: "#666",
-    padding: 12,
-    borderRadius: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    padding: 16,
+    borderRadius: 14,
     alignItems: "center",
-    marginTop: 15,
+    marginTop: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.12)",
   },
+  
   modalCancelText: {
-    color: "#fff",
-    fontSize: 14,
+    color: "rgba(255, 255, 255, 0.8)",
+    fontSize: 15,
+    fontWeight: "600",
+    letterSpacing: 0.2,
   },
 });
