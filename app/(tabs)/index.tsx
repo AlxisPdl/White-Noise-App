@@ -108,9 +108,37 @@ export default function SoundBoard(): React.JSX.Element {
   const [isPreloading, setIsPreloading] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<ActiveTab>('ambient');
   const [showStopModal, setShowStopModal] = useState<boolean>(false);
+  const [audioInitialized, setAudioInitialized] = useState<boolean>(false);
+
+  // Configuration audio globale au démarrage
+  useEffect(() => {
+    const initializeAudio = async (): Promise<void> => {
+      try {
+        console.log("=== CONFIGURATION AUDIO GLOBALE ===");
+        await Audio.setAudioModeAsync({
+          staysActiveInBackground: true,
+          playsInSilentModeIOS: true,
+          allowsRecordingIOS: false,
+          shouldDuckAndroid: false, // Important: permet le mixage de sons
+          playThroughEarpieceAndroid: false,
+          // Suppression des modes d'interruption problématiques
+        });
+        setAudioInitialized(true);
+        console.log("Configuration audio OK");
+      } catch (error) {
+        console.log("Erreur configuration audio :", error);
+        // Même en cas d'erreur de config, on continue
+        setAudioInitialized(true);
+      }
+    };
+
+    initializeAudio();
+  }, []);
 
   useEffect(() => {
     const preloadPopularSounds = async (): Promise<void> => {
+      if (!audioInitialized) return;
+
       const popularSounds: string[] = ["Ocean", "Rain 01", "Fire", "White Noise 1"];
       const preloaded: PreloadedSoundsState = {};
       
@@ -134,30 +162,52 @@ export default function SoundBoard(): React.JSX.Element {
     };
 
     preloadPopularSounds();
-  }, []);
+  }, [audioInitialized]);
 
   useEffect(() => {
+    // Le nettoyage ne doit se faire QUE lors du démontage du composant
     return () => {
-      Object.values(playingSounds).forEach(async (sound: Audio.Sound) => {
-        try {
-          await sound.stopAsync();
-          await sound.unloadAsync();
-        } catch (e) {
-          console.log("Erreur lors du nettoyage :", e);
-        }
-      });
-
-      Object.entries(preloadedSounds).forEach(([name, sound]: [string, Audio.Sound]) => {
-        if (!playingSounds[name]) {
+      const cleanup = async () => {
+        console.log("=== NETTOYAGE GLOBAL (DÉMONTAGE) ===");
+        
+        // Arrêter tous les sons en cours
+        const cleanupPromises = Object.entries(playingSounds).map(async ([name, sound]) => {
           try {
-            sound.unloadAsync();
+            console.log(`Nettoyage son en cours: ${name}`);
+            const status = await sound.getStatusAsync();
+            if (status.isLoaded) {
+              if (status.isPlaying) {
+                await sound.stopAsync();
+              }
+              await sound.unloadAsync();
+            }
           } catch (e) {
-            console.log("Erreur lors du nettoyage des sons pré-chargés :", e);
+            console.log(`Erreur nettoyage ${name}:`, e);
           }
-        }
-      });
+        });
+
+        // Nettoyer les sons pré-chargés non utilisés
+        const preloadCleanup = Object.entries(preloadedSounds).map(async ([name, sound]) => {
+          if (!playingSounds[name]) {
+            try {
+              console.log(`Nettoyage son pré-chargé: ${name}`);
+              const status = await sound.getStatusAsync();
+              if (status.isLoaded) {
+                await sound.unloadAsync();
+              }
+            } catch (e) {
+              console.log(`Erreur nettoyage préchargé ${name}:`, e);
+            }
+          }
+        });
+
+        await Promise.all([...cleanupPromises, ...preloadCleanup]);
+        console.log("Nettoyage terminé");
+      };
+
+      cleanup();
     };
-  }, [playingSounds, preloadedSounds]);
+  }, []); // SUPPRESSION DES DÉPENDANCES qui causaient le re-déclenchement
 
   const showError = (message: string): void => {
     Alert.alert("Erreur Audio", message, [{ text: "OK", style: "default" }]);
@@ -167,51 +217,160 @@ export default function SoundBoard(): React.JSX.Element {
     try {
       if (loadingSounds[item.name]) return;
 
+      console.log(`=== TENTATIVE LECTURE: ${item.name} ===`);
+      console.log("Sons actuellement en cours:", Object.keys(playingSounds));
+
+      // Si le son est déjà en cours, l'arrêter
       if (playingSounds[item.name]) {
-        await playingSounds[item.name].stopAsync();
-        await playingSounds[item.name].unloadAsync();
-        const updated = { ...playingSounds };
-        delete updated[item.name];
-        setPlayingSounds(updated);
-      } else {
-        setLoadingSounds({ ...loadingSounds, [item.name]: true });
+        console.log(`Arrêt du son: ${item.name}`);
+        const soundToStop = playingSounds[item.name];
+        
+        // Mettre à jour l'état immédiatement
+        setPlayingSounds((prev) => {
+          const updated = { ...prev };
+          delete updated[item.name];
+          console.log("Sons après suppression:", Object.keys(updated));
+          return updated;
+        });
+        
+        // Arrêter le son de façon sécurisée
+        try {
+          const status = await soundToStop.getStatusAsync();
+          if (status.isLoaded) {
+            if (status.isPlaying) {
+              await soundToStop.stopAsync();
+            }
+            await soundToStop.unloadAsync();
+          }
+          console.log(`Son ${item.name} arrêté avec succès`);
+        } catch (e) {
+          console.log("Erreur lors de l'arrêt:", e);
+        }
+        return;
+      }
 
-        let sound: Audio.Sound;
+      // Marquer comme en cours de chargement
+      console.log(`Démarrage du son: ${item.name}`);
+      setLoadingSounds((prev) => ({ ...prev, [item.name]: true }));
 
-        if (preloadedSounds[item.name]) {
-          sound = preloadedSounds[item.name];
-          await sound.setVolumeAsync(volumes[item.name] ?? 1.0);
-          await sound.setIsLoopingAsync(true);
-          await sound.playAsync();
-        } else {
+      // Reconfigurer le mode audio avant chaque lecture pour être sûr
+      try {
+        await Audio.setAudioModeAsync({
+          staysActiveInBackground: true,
+          playsInSilentModeIOS: true,
+          allowsRecordingIOS: false,
+          shouldDuckAndroid: false,
+          playThroughEarpieceAndroid: false,
+        });
+        console.log("Mode audio reconfiguré pour mixage");
+      } catch (audioError) {
+        console.log("Erreur reconfig audio:", audioError);
+      }
+
+      let sound: Audio.Sound;
+
+      // Utiliser le son pré-chargé si disponible
+      if (preloadedSounds[item.name]) {
+        console.log(`Utilisation du son pré-chargé: ${item.name}`);
+        sound = preloadedSounds[item.name];
+        
+        // Vérifier que le son pré-chargé est toujours valide
+        try {
+          const status = await sound.getStatusAsync();
+          if (!status.isLoaded) {
+            console.log(`Son pré-chargé non valide, création d'une nouvelle instance: ${item.name}`);
+            const { sound: newSound } = await Audio.Sound.createAsync(item.file, {
+              isLooping: true,
+              volume: volumes[item.name] ?? 1.0,
+              shouldPlay: false,
+            });
+            sound = newSound;
+          } else {
+            // Configurer le son pré-chargé
+            await sound.setVolumeAsync(volumes[item.name] ?? 1.0);
+            await sound.setIsLoopingAsync(true);
+          }
+        } catch (error) {
+          console.log(`Erreur avec le son pré-chargé, création nouvelle instance: ${item.name}`);
           const { sound: newSound } = await Audio.Sound.createAsync(item.file, {
             isLooping: true,
             volume: volumes[item.name] ?? 1.0,
+            shouldPlay: false,
           });
           sound = newSound;
-          await sound.playAsync();
         }
-
-        setPlayingSounds({ ...playingSounds, [item.name]: sound });
         
-        const updatedLoading = { ...loadingSounds };
-        delete updatedLoading[item.name];
-        setLoadingSounds(updatedLoading);
+        // Retirer de la liste des pré-chargés puisqu'on l'utilise maintenant
+        setPreloadedSounds((prev) => {
+          const updated = { ...prev };
+          delete updated[item.name];
+          return updated;
+        });
+      } else {
+        // Créer une nouvelle instance
+        console.log(`Création nouvelle instance: ${item.name}`);
+        const { sound: newSound } = await Audio.Sound.createAsync(item.file, {
+          isLooping: true,
+          volume: volumes[item.name] ?? 1.0,
+          shouldPlay: false,
+          // Ajout d'options explicites pour le mixage
+          progressUpdateIntervalMillis: 1000,
+          positionMillis: 0,
+        });
+        sound = newSound;
       }
+
+      console.log(`Instance prête pour: ${item.name}`);
+
+      // Ajouter aux sons actifs AVANT de démarrer la lecture
+      setPlayingSounds((prev) => {
+        const newState = { ...prev, [item.name]: sound };
+        console.log("Nouveaux sons en cours:", Object.keys(newState));
+        return newState;
+      });
+
+      // Démarrer la lecture
+      console.log(`Tentative de démarrage lecture: ${item.name}`);
+      await sound.playAsync();
+      
+      // Vérifier immédiatement l'état après démarrage
+      const statusAfterPlay = await sound.getStatusAsync();
+      console.log(`État après playAsync pour ${item.name}:`, {
+        isLoaded: statusAfterPlay.isLoaded,
+        isPlaying: statusAfterPlay.isLoaded ? statusAfterPlay.isPlaying : 'N/A',
+        volume: statusAfterPlay.isLoaded ? statusAfterPlay.volume : 'N/A'
+      });
+      
+      console.log(`Lecture démarrée: ${item.name}`);
+
+      // Retirer du loading
+      setLoadingSounds((prev) => {
+        const updated = { ...prev };
+        delete updated[item.name];
+        return updated;
+      });
+
+      console.log(`=== ${item.name} DÉMARRÉ AVEC SUCCÈS ===`);
+
     } catch (error) {
       console.log("Erreur son :", error);
       showError(`Impossible de lire le son "${item.name}". Vérifiez que le fichier existe.`);
       
-      const updatedLoading = { ...loadingSounds };
-      delete updatedLoading[item.name];
-      setLoadingSounds(updatedLoading);
+      setLoadingSounds((prev) => {
+        const updated = { ...prev };
+        delete updated[item.name];
+        return updated;
+      });
     }
   };
 
   const setVolume = async (name: string, value: number): Promise<void> => {
     try {
       if (playingSounds[name]) {
-        await playingSounds[name].setVolumeAsync(value);
+        const status = await playingSounds[name].getStatusAsync();
+        if (status.isLoaded) {
+          await playingSounds[name].setVolumeAsync(value);
+        }
       }
     } catch (error) {
       console.log("Erreur lors du changement de volume :", error);
@@ -233,13 +392,20 @@ export default function SoundBoard(): React.JSX.Element {
 
   const stopAllSounds = async (): Promise<void> => {
     try {
+      console.log("=== ARRÊT DE TOUS LES SONS ===");
       const soundsToStop = { ...playingSounds };
       
       await Promise.all(
         Object.entries(soundsToStop).map(async ([soundName, sound]: [string, Audio.Sound]) => {
           try {
-            await sound.stopAsync();
-            await sound.unloadAsync();
+            console.log(`Arrêt individuel: ${soundName}`);
+            const status = await sound.getStatusAsync();
+            if (status.isLoaded) {
+              if (status.isPlaying) {
+                await sound.stopAsync();
+              }
+              await sound.unloadAsync();
+            }
           } catch (error) {
             console.log(`Erreur lors de l'arrêt du son ${soundName}:`, error);
           }
@@ -248,6 +414,7 @@ export default function SoundBoard(): React.JSX.Element {
       
       setPlayingSounds({});
       setShowStopModal(false);
+      console.log("Tous les sons arrêtés");
       
     } catch (error) {
       console.log("Erreur lors de l'arrêt de tous les sons :", error);
@@ -257,9 +424,16 @@ export default function SoundBoard(): React.JSX.Element {
   const stopSound = async (soundName: string): Promise<void> => {
     try {
       if (playingSounds[soundName]) {
+        console.log(`Arrêt individuel: ${soundName}`);
         const sound = playingSounds[soundName];
-        await sound.stopAsync();
-        await sound.unloadAsync();
+        
+        const status = await sound.getStatusAsync();
+        if (status.isLoaded) {
+          if (status.isPlaying) {
+            await sound.stopAsync();
+          }
+          await sound.unloadAsync();
+        }
         
         setPlayingSounds((prevPlayingSounds: PlayingSoundsState) => {
           const updated = { ...prevPlayingSounds };
@@ -292,6 +466,16 @@ export default function SoundBoard(): React.JSX.Element {
 
   return (
     <View style={styles.container}>
+      {/* Arrière-plan animé avec motifs relaxants */}
+      <View style={styles.backgroundContainer}>
+        <View style={[styles.backgroundBlob, styles.blob1]} />
+        <View style={[styles.backgroundBlob, styles.blob2]} />
+        <View style={[styles.backgroundBlob, styles.blob3]} />
+        <View style={[styles.backgroundBlob, styles.blob4]} />
+        <View style={[styles.backgroundBlob, styles.blob5]} />
+        <View style={[styles.backgroundBlob, styles.blob6]} />
+      </View>
+
       <View style={styles.headerGlass}>
         <Text style={styles.title}>🎶 Relaxation Player</Text>
         <Text style={styles.subtitle}>Créez votre ambiance parfaite</Text>
@@ -438,6 +622,68 @@ const styles = StyleSheet.create({
     flex: 1, 
     backgroundColor: "#0a0a0f",
     paddingTop: 60,
+    position: "relative",
+  },
+  backgroundContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    overflow: "hidden",
+  },
+  backgroundBlob: {
+    position: "absolute",
+    borderRadius: 1000,
+    opacity: 0.4, // Augmenté de 0.15 à 0.4
+  },
+  blob1: {
+    width: 350, // Agrandi
+    height: 350,
+    backgroundColor: "rgba(139, 92, 246, 0.6)", // Plus intense
+    top: -120,
+    left: -100,
+    transform: [{ rotate: "45deg" }],
+  },
+  blob2: {
+    width: 280, // Agrandi
+    height: 280,
+    backgroundColor: "rgba(59, 130, 246, 0.5)", // Plus intense
+    top: 120,
+    right: -80,
+    transform: [{ rotate: "-30deg" }],
+  },
+  blob3: {
+    width: 220, // Agrandi
+    height: 380,
+    backgroundColor: "rgba(16, 185, 129, 0.45)", // Plus intense
+    bottom: 180,
+    left: -70,
+    transform: [{ rotate: "75deg" }, { scaleY: 1.5 }],
+  },
+  blob4: {
+    width: 260, // Agrandi
+    height: 260,
+    backgroundColor: "rgba(236, 72, 153, 0.35)", // Plus intense
+    bottom: -80,
+    right: -100,
+    transform: [{ rotate: "15deg" }],
+  },
+  blob5: {
+    width: 200, // Agrandi
+    height: 320,
+    backgroundColor: "rgba(245, 101, 101, 0.4)", // Plus intense
+    top: "35%",
+    left: "25%",
+    transform: [{ rotate: "-45deg" }, { scaleX: 0.7 }],
+  },
+  blob6: {
+    width: 240, // Agrandi
+    height: 160,
+    backgroundColor: "rgba(168, 85, 247, 0.3)", // Plus intense
+    top: "60%",
+    right: "20%",
+    transform: [{ rotate: "60deg" }, { scaleY: 1.8 }],
   },
   centered: {
     justifyContent: "center",
